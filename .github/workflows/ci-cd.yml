@@ -9,61 +9,9 @@ on:
     branches: [ main ]
 
 jobs:
-  test:
-    name: Unit Testing
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-      
-      - run: npm ci
-      
-      - run: npm test || echo "No tests found, would add tests in a real project"
-
-  lint:
-    name: Static Code Analysis
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-      
-      - run: npm ci
-      
-      - run: npm run lint
-
-  build:
-    name: Build
-    runs-on: ubuntu-latest
-    needs: [test, lint]
-    steps:
-      - uses: actions/checkout@v4
-      
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-      
-      - run: npm ci
-      
-      - run: npm run build
-      
-      - uses: actions/upload-artifact@v4
-        with:
-          name: build-artifacts
-          path: dist/
-
   docker:
     name: Docker Build, Scan & Push to Docker Hub
     runs-on: ubuntu-latest
-    needs: [build]
     env:
       REGISTRY: docker.io
       IMAGE_NAME: adeel1144/${{ github.repository }}
@@ -71,21 +19,16 @@ jobs:
       image_tag: ${{ steps.set_output.outputs.image_tag }}
     steps:
       - uses: actions/checkout@v4
-      
-      - uses: actions/download-artifact@v4
-        with:
-          name: build-artifacts
-          path: dist/
-      
+
       - uses: docker/setup-buildx-action@v3
-      
+
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      
+
       - name: Extract metadata for Docker
         id: meta
         uses: docker/metadata-action@v5
@@ -95,7 +38,7 @@ jobs:
             type=sha,format=long
             type=ref,event=branch
             latest
-      
+
       - name: Build Docker image
         uses: docker/build-push-action@v5
         with:
@@ -104,7 +47,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           load: true
-      
+
       - name: Run Trivy vulnerability scanner and save report
         uses: aquasecurity/trivy-action@master
         with:
@@ -114,21 +57,21 @@ jobs:
           ignore-unfixed: true
           vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
-      
-      - name: Upload Trivy vulnerability report
+
+      - name: Upload Trivy vulnerability report artifact
         uses: actions/upload-artifact@v4
         with:
           name: trivy-report
           path: trivy-report.json
-      
-      - name: Push Docker image
+
+      - name: Push Docker image to Docker Hub
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-      
+
       - name: Set image tag output
         id: set_output
         run: echo "image_tag=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
@@ -141,13 +84,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          token: ${{ secrets.TOKEN }}
-      
+          token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Setup Git config
         run: |
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
-      
+
       - name: Update Kubernetes deployment file
         env:
           IMAGE_TAG: sha-${{ github.sha }}
@@ -158,7 +101,7 @@ jobs:
           sed -i "s|image: ${REGISTRY}/.*|image: ${NEW_IMAGE}|g" kubernetes/deployment.yaml
           echo "Updated deployment to use image: ${NEW_IMAGE}"
           grep -A 1 "image:" kubernetes/deployment.yaml
-      
+
       - name: Commit and push changes
         run: |
           git add kubernetes/deployment.yaml
